@@ -1,0 +1,41 @@
+# Build artifacts
+**/bin/**
+**/obj/**
+!**/bin/**/Assets/**
+**/AppPackages/**
+**/BundleArtifacts/**
+
+# Local release/installer artifacts (MSIX, portable ZIP, signing files)
+dist/
+
+# Local workflow outputs
+release-publish/
+release-assets/
+release-notes.md
+
+# Local tooling / agent metadata
+.commandcode/
+
+# Bundled sing-box artifacts (populated by the release workflow / local packaging)
+Tunly/CoreBundle/
+
+# sing-box runtime artifacts
+cache.db
+*.db-shm
+*.db-wal
+
+# Visual Studio / Rider cache
+.vs/
+*.user
+*.suo
+*.nupkg
+zxing/
+
+# secrets / local configs
+*.pfx
+*.snk
+
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store

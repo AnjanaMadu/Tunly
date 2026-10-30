@@ -67,18 +67,41 @@ public sealed class ProfileService
         logs.Info("Testing latency…");
 
         var connected = AppServices.Connection.IsConnected;
-        using var gate = new SemaphoreSlim(4);
+        using var gate = new SemaphoreSlim(connected ? 4 : 2);
+
+        var probeDirectory = AppPaths.ResolveConfigDirectory(AppServices.Settings.ConfigDirectory);
+        var corePath = AppServices.Settings.CorePath;
 
         var probes = Items.ToList().Select(async profile =>
         {
             await gate.WaitAsync();
             try
             {
-                // Raw TCP probes are only meaningful while the tunnel is down; when it is
-                // up, the Clash API measures the outbound itself.
-                var delay = connected
-                    ? await AppServices.Connection.TestDelayAsync(profile.Id)
-                    : await LatencyProbe.TcpAsync(profile.Address, profile.Port, 3000);
+                int? delay;
+
+                if (connected)
+                {
+                    // The tunnel is up: the core measures the outbound itself.
+                    delay = await AppServices.Connection.TestDelayAsync(profile.Id);
+                }
+                else
+                {
+                    // Tunnel is down: run each profile briefly in proxy mode and
+                    // time a real request through it, so the figure covers the
+                    // whole tunnel instead of a bare TCP connect.
+                    OutboundSpec spec;
+                    try
+                    {
+                        spec = ProfileMapper.ToSpec(profile);
+                    }
+                    catch (Exception ex)
+                    {
+                        logs.Warn($"Latency test skipped for {profile.Name}: {ex.Message}");
+                        return;
+                    }
+
+                    delay = await ProxyLatencyProbe.ProbeAsync(spec, corePath, probeDirectory);
+                }
 
                 profile.LatencyMs = delay;
 

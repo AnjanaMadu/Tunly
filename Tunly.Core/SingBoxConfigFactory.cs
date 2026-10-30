@@ -73,6 +73,55 @@ public static class SingBoxConfigFactory
         return root;
     }
 
+    /// <summary>
+    /// Builds a bare proxy-mode config for one profile: a local mixed inbound on
+    /// the given port, that outbound, and nothing else. No TUN, no Clash API —
+    /// used by the latency probe so a request can be pushed through the real
+    /// tunnel without administrator rights.
+    /// </summary>
+    public static JsonObject BuildProbeConfig(OutboundSpec profile, int mixedPort)
+    {
+        var root = new JsonObject
+        {
+            ["log"] = new JsonObject
+            {
+                ["level"] = "error",
+                ["timestamp"] = true
+            },
+            ["dns"] = new JsonObject
+            {
+                ["servers"] = new JsonArray(new JsonObject
+                {
+                    ["type"] = "local",
+                    ["tag"] = "local"
+                }),
+                ["final"] = "local"
+            },
+            ["inbounds"] = new JsonArray(new JsonObject
+            {
+                ["type"] = "mixed",
+                ["tag"] = "mixed-in",
+                ["listen"] = "127.0.0.1",
+                ["listen_port"] = mixedPort
+            }),
+            ["outbounds"] = new JsonArray(
+                BuildOutbound(profile, new TunOptions()),
+                new JsonObject
+                {
+                    ["type"] = "direct",
+                    ["tag"] = DirectTag
+                }),
+            ["route"] = new JsonObject
+            {
+                ["final"] = profile.Tag,
+                ["auto_detect_interface"] = true,
+                ["default_domain_resolver"] = "local"
+            }
+        };
+
+        return root;
+    }
+
     /// <summary>Validates every outbound and throws a message naming the profile.</summary>
     public static void ValidateProfiles(IReadOnlyList<OutboundSpec> profiles)
     {

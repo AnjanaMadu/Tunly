@@ -9,7 +9,7 @@ namespace Tunly.Core;
 /// <summary>Minimal client for the sing-box Clash API.</summary>
 public sealed class ClashApiClient : IDisposable
 {
-    public const string DefaultDelayUrl = "https://www.gstatic.com/generate_204";
+    public const string DefaultDelayUrl = "http://www.gstatic.com/generate_204";
 
     readonly HttpClient _http;
 

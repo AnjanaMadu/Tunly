@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Tunly.Views.LogsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="Transparent">
+
+    <Grid Padding="28,22,28,28" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Spacing="2">
+                <TextBlock Text="Logs" Style="{StaticResource PageTitleStyle}" />
+                <TextBlock Text="Everything the app and the core report, in one place." Style="{StaticResource PageSubtitleStyle}" />
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Content="Copy" Click="OnCopy" />
+                <Button Content="Open log file" Click="OnOpenLogFile" />
+                <Button Content="Clear" Click="OnClear" />
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnSpacing="12" Margin="0,4,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <ComboBox
+                x:Name="LevelBox"
+                Width="150"
+                MinHeight="32"
+                VerticalAlignment="Center"
+                SelectedIndex="2"
+                SelectionChanged="OnLevelChanged">
+                <ComboBoxItem Content="All levels" />
+                <ComboBoxItem Content="Debug" />
+                <ComboBoxItem Content="Info" />
+                <ComboBoxItem Content="Warning" />
+                <ComboBoxItem Content="Error" />
+            </ComboBox>
+
+            <AutoSuggestBox
+                Grid.Column="1"
+                Width="260"
+                MinHeight="32"
+                VerticalAlignment="Center"
+                QueryIcon="Find"
+                PlaceholderText="Search messages"
+                TextChanged="OnSearchChanged" />
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0,0,0">
+                <ToggleSwitch IsOn="{Binding AutoScroll, Mode=TwoWay}" OnContent="Auto-scroll" OffContent="Auto-scroll" MinWidth="0" />
+                <TextBlock Text="{Binding CountText}" Style="{StaticResource CaptionStyle}" VerticalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="2" Style="{StaticResource CardBorderStyle}" Padding="6" Margin="0,4,0,0">
+            <Grid>
+                <ListView
+                    x:Name="LogList"
+                    ItemsSource="{Binding Visible}"
+                    SelectionMode="None"
+                    ItemContainerStyle="{StaticResource CompactListItemStyle}"
+                    Visibility="{Binding ListVisibility}"
+                    IsItemClickEnabled="False">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="12" Padding="8,5">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="58" />
+                                    <ColumnDefinition Width="52" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding TimeText}" Style="{StaticResource MonoTextStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock Grid.Column="1" Text="{Binding LevelText}" Style="{StaticResource MonoTextStyle}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding LevelBrush}" />
+                                <TextBlock Grid.Column="2" Text="{Binding Message}" Style="{StaticResource MonoTextStyle}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <StackPanel
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="6"
+                    Visibility="{Binding EmptyVisibility}">
+                    <FontIcon Glyph="&#xE7C3;" FontSize="32" Opacity="0.5" HorizontalAlignment="Center" />
+                    <TextBlock Text="No log entries match the current filter" Style="{StaticResource CaptionStyle}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

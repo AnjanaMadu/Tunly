@@ -188,6 +188,15 @@
                         </controls:SettingsCard>
 
                         <controls:SettingsCard
+                            Header="Close to tray"
+                            Description="Keep Tunly and its tunnel running in the notification area when the window is closed."
+                            Glyph="&#xE721;">
+                            <controls:SettingsCard.ActionContent>
+                                <ToggleSwitch Style="{StaticResource SettingsToggleStyle}" IsOn="{Binding Settings.CloseToTray, Mode=TwoWay}" />
+                            </controls:SettingsCard.ActionContent>
+                        </controls:SettingsCard>
+
+                        <controls:SettingsCard
                             Header="Always on top"
                             Description="Keep the window above other apps."
                             Glyph="&#xE718;">

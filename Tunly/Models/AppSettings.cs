@@ -21,11 +21,13 @@ public sealed class AppSettings : ObservableObject
     // ---------------- Window & startup ----------------
     bool _autoConnect = true;
     bool _rememberWindow = true;
+    bool _closeToTray = true;
     bool _alwaysOnTop;
     bool _launchMaximized;
 
     public bool AutoConnect { get => _autoConnect; set => SetProperty(ref _autoConnect, value); }
     public bool RememberWindow { get => _rememberWindow; set => SetProperty(ref _rememberWindow, value); }
+    public bool CloseToTray { get => _closeToTray; set => SetProperty(ref _closeToTray, value); }
     public bool AlwaysOnTop { get => _alwaysOnTop; set => SetProperty(ref _alwaysOnTop, value); }
     public bool LaunchMaximized { get => _launchMaximized; set => SetProperty(ref _launchMaximized, value); }
 

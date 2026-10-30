@@ -106,7 +106,7 @@ jobs:
           $version = $version -replace '[^\w\.\-\+]', '-'
           $numeric = ($version -split '[-+]')[0]
           if ($numeric -notmatch '^\d+\.\d+\.\d+$' -or $numeric -eq '0.0.0') {
-              $numeric = '1.0.0'
+              $numeric = '1.1.0'
           }
 
           $sha = (git rev-parse HEAD).Trim()

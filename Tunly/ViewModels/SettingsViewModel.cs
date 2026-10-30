@@ -24,6 +24,7 @@ public sealed class SettingsViewModel : ObservableObject
     public string[] BackdropOptions { get; } = ["Mica", "Acrylic", "Solid"];
     public string[] TunStackOptions { get; } = ["System", "gVisor", "Mixed"];
     public string[] DnsModeOptions { get; } = ["System", "DoH", "Custom"];
+    public string[] LatencyTestOptions { get; } = ["TcpPing", "RealDelay"];
     public string[] LogLevelOptions { get; } = ["Trace", "Debug", "Info", "Warn", "Error"];
 
     public string VersionText { get; } = $"Version {typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.0"}";

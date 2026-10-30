@@ -26,6 +26,7 @@ public sealed class Profile : Core.ObservableObject
     bool _tls = true;
     string _sni = "";
     int? _latency;
+    string _latencyMode = "";
     bool _active;
 
     public string Id { get; set; } = System.Guid.NewGuid().ToString("N");
@@ -118,9 +119,28 @@ public sealed class Profile : Core.ObservableObject
         }
     }
 
+    /// <summary>How the current latency figure was measured: "TcpPing", "RealDelay" or "" (untested). Runtime value.</summary>
+    [JsonIgnore]
+    public string LatencyMode
+    {
+        get => _latencyMode;
+        set => SetProperty(ref _latencyMode, value ?? "");
+    }
+
     [JsonIgnore] public string Endpoint => string.IsNullOrWhiteSpace(Address) ? "Not configured" : Port > 0 ? $"{Address}:{Port}" : Address;
     [JsonIgnore] public string TransportText => Tls ? $"{Transport} · TLS" : Transport;
     [JsonIgnore] public string LatencyText => LatencyMs is int ms ? $"{ms} ms" : "—";
+
+    /// <summary>Human explanation of the latency figure, used as the row tooltip.</summary>
+    [JsonIgnore]
+    public string LatencyModeText => LatencyMs is null
+        ? "Not tested yet."
+        : LatencyMode switch
+        {
+            "RealDelay" => "Real delay — an HTTP request was pushed through the whole tunnel. Honest for Cloudflare/CDN IPs and proves the server is alive.",
+            "TcpPing" => $"TCP ping — direct socket connect to {Endpoint}. For Cloudflare/CDN IPs this measures the nearest edge node, not the server behind it.",
+            _ => "Latency measured with an unknown method."
+        };
     [JsonIgnore] public string Initial => string.IsNullOrWhiteSpace(Name) ? "?" : Name.Trim()[..1].ToUpperInvariant();
 
     [JsonIgnore]
@@ -146,6 +166,7 @@ public sealed class Profile : Core.ObservableObject
         Tls = other.Tls;
         Sni = other.Sni;
         LatencyMs = other.LatencyMs;
+        LatencyMode = other.LatencyMode;
 
         Uuid = other.Uuid;
         Method = other.Method;
@@ -175,6 +196,7 @@ public sealed class Profile : Core.ObservableObject
         Tls = Tls,
         Sni = Sni,
         LatencyMs = LatencyMs,
+        LatencyMode = LatencyMode,
         Uuid = Uuid,
         Method = Method,
         Flow = Flow,

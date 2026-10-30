@@ -314,6 +314,20 @@
                             </controls:SettingsCard.ActionContent>
                         </controls:SettingsCard>
 
+                        <TextBlock Text="Latency" Style="{StaticResource SectionTitleStyle}" Margin="2,18,0,8" />
+
+                        <controls:SettingsCard
+                            Header="Latency test"
+                            Description="TCP ping connects to the server directly and is fastest, but reports the nearest edge for CDN addresses. Real delay pushes a request through the whole tunnel, so it is the honest figure for Cloudflare IPs and also proves the server is alive."
+                            Glyph="&#xE968;">
+                            <controls:SettingsCard.ActionContent>
+                                <ComboBox
+                                    Width="170"
+                                    ItemsSource="{Binding LatencyTestOptions}"
+                                    SelectedItem="{Binding Settings.LatencyTest, Mode=TwoWay}" />
+                            </controls:SettingsCard.ActionContent>
+                        </controls:SettingsCard>
+
                         <TextBlock Text="DNS" Style="{StaticResource SectionTitleStyle}" Margin="2,18,0,8" />
 
                         <controls:SettingsCard

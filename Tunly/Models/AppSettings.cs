@@ -54,6 +54,11 @@ public sealed class AppSettings : ObservableObject
     public double Mtu { get => _mtu; set => SetProperty(ref _mtu, value); }
     public double MixedPort { get => _mixedPort; set => SetProperty(ref _mixedPort, value); }
 
+    // ---------------- Latency ----------------
+    string _latencyTest = "TcpPing";
+
+    public string LatencyTest { get => _latencyTest; set => SetProperty(ref _latencyTest, value); }
+
     // ---------------- DNS ----------------
     string _dnsMode = "System";
     string _dnsServer = "1.1.1.1";

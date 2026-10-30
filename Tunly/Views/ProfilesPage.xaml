@@ -148,7 +148,13 @@
                                     </Border>
                                 </StackPanel>
 
-                                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                <StackPanel
+                                    Grid.Column="4"
+                                    Orientation="Horizontal"
+                                    Spacing="6"
+                                    VerticalAlignment="Center"
+                                    HorizontalAlignment="Right"
+                                    ToolTipService.ToolTip="{Binding LatencyModeText}">
                                     <Ellipse Width="7" Height="7" Fill="{Binding LatencyBrush}" VerticalAlignment="Center" />
                                     <TextBlock Text="{Binding LatencyText}" FontSize="12" />
                                 </StackPanel>

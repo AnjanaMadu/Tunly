@@ -63,11 +63,13 @@ public sealed class ProfileService
 
     public async Task TestAllAsync(LogService logs)
     {
-        foreach (var p in Items) p.LatencyMs = null;
-        logs.Info("Testing latency…");
+        foreach (var p in Items) { p.LatencyMs = null; p.LatencyMode = ""; }
+
+        var realDelay = AppServices.Settings.LatencyTest == "RealDelay";
+        logs.Info(realDelay ? "Testing real delay…" : "Testing TCP latency…");
 
         var connected = AppServices.Connection.IsConnected;
-        using var gate = new SemaphoreSlim(connected ? 4 : 2);
+        using var gate = new SemaphoreSlim(realDelay ? (connected ? 4 : 2) : 8);
 
         var probeDirectory = AppPaths.ResolveConfigDirectory(AppServices.Settings.ConfigDirectory);
         var corePath = AppServices.Settings.CorePath;
@@ -77,36 +79,54 @@ public sealed class ProfileService
             await gate.WaitAsync();
             try
             {
-                int? delay;
-
-                if (connected)
+                OutboundSpec spec;
+                try
                 {
-                    // The tunnel is up: the core measures the outbound itself.
-                    delay = await AppServices.Connection.TestDelayAsync(profile.Id);
+                    spec = ProfileMapper.ToSpec(profile);
+                }
+                catch (Exception ex)
+                {
+                    logs.Warn($"Latency test skipped for {profile.Name}: {ex.Message}");
+                    return;
+                }
+
+                int? delay;
+                string mode;
+
+                if (realDelay)
+                {
+                    mode = "RealDelay";
+
+                    if (connected)
+                    {
+                        // The tunnel is up: the core measures the outbound itself.
+                        delay = await AppServices.Connection.TestDelayAsync(profile.Id);
+                    }
+                    else
+                    {
+                        // Tunnel is down: run each profile briefly in proxy mode
+                        // and time a real request through it, so the figure
+                        // covers the whole tunnel. Also proves the server is
+                        // actually reachable end to end.
+                        delay = await ProxyLatencyProbe.ProbeAsync(spec, corePath, probeDirectory);
+                    }
                 }
                 else
                 {
-                    // Tunnel is down: run each profile briefly in proxy mode and
-                    // time a real request through it, so the figure covers the
-                    // whole tunnel instead of a bare TCP connect.
-                    OutboundSpec spec;
-                    try
-                    {
-                        spec = ProfileMapper.ToSpec(profile);
-                    }
-                    catch (Exception ex)
-                    {
-                        logs.Warn($"Latency test skipped for {profile.Name}: {ex.Message}");
-                        return;
-                    }
+                    mode = "TcpPing";
 
-                    delay = await ProxyLatencyProbe.ProbeAsync(spec, corePath, probeDirectory);
+                    // A bare TCP connect to the server address: fast, direct,
+                    // and with no tunnel involvement. For CDN-fronted
+                    // addresses this measures the nearest edge node, not the
+                    // server behind it.
+                    delay = await TcpPing.MeasureAsync(spec.Server, spec.Port);
                 }
 
                 profile.LatencyMs = delay;
+                profile.LatencyMode = delay is int ? mode : "";
 
                 if (delay is int value)
-                    logs.Debug($"Latency {profile.Name}: {value} ms");
+                    logs.Debug($"Latency {profile.Name}: {value} ms ({mode})");
                 else
                     logs.Warn($"Latency test failed for {profile.Name}.");
             }

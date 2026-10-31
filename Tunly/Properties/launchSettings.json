@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Tunly (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Tunly (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

@@ -1,0 +1,392 @@
+name: Release (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. 1.2.3. Leave empty to use the tag on HEAD, otherwise 0.0.0-<shortsha>."
+        required: false
+        default: ""
+      prerelease:
+        description: "Mark this release as a pre-release."
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  # Official sing-box build bundled into the portable ZIP and MSIX.
+  SING_BOX_VERSION: '1.14.4'
+
+defaults:
+  run:
+    shell: pwsh
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish Windows x64 release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout the selected ref
+        uses: actions/checkout@v5
+        with:
+          # Tags are needed to derive a version from the current commit.
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Bundle the official sing-box core
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:SING_BOX_VERSION
+          $url = "https://github.com/SagerNet/sing-box/releases/download/v$version/sing-box-$version-windows-amd64.zip"
+          $zip = Join-Path $env:RUNNER_TEMP 'sing-box-core.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'sing-box-core'
+
+          if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+
+          $exe = Get-ChildItem $extract -Recurse -Filter 'sing-box.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'sing-box.exe was not found in the official archive.' }
+
+          $bundle = 'Tunly/CoreBundle'
+          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
+          Copy-Item $exe.FullName (Join-Path $bundle 'sing-box.exe') -Force
+
+          $lib = Join-Path $exe.DirectoryName 'libcronet.dll'
+          if (Test-Path $lib) { Copy-Item $lib (Join-Path $bundle 'libcronet.dll') -Force }
+
+          $license = Join-Path $exe.DirectoryName 'LICENSE'
+          if (Test-Path $license) { Copy-Item $license (Join-Path $bundle 'LICENSE') -Force }
+
+          @(
+            "sing-box $version (windows/amd64)",
+            "Source: https://github.com/SagerNet/sing-box/tree/v$version",
+            "License: GPL-3.0-or-later. See LICENSE.",
+            "Unmodified official release binary bundled with Tunly."
+          ) | Set-Content (Join-Path $bundle 'SOURCE.txt') -Encoding utf8
+
+          Write-Host "Bundled sing-box $version"
+
+      - name: Resolve release version
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $version = $env:INPUT_VERSION
+          if ($null -eq $version) { $version = '' }
+          $version = $version.Trim()
+          if ($version.StartsWith('v') -or $version.StartsWith('V')) {
+              $version = $version.Substring(1)
+          }
+
+          if ([string]::IsNullOrWhiteSpace($version)) {
+              $tagsHere = @(git tag --points-at HEAD)
+              if ($tagsHere.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($tagsHere[0])) {
+                  $version = $tagsHere[0].Trim().TrimStart('v', 'V')
+              } else {
+                  $short = (git rev-parse --short HEAD).Trim()
+                  if ($LASTEXITCODE -ne 0) { throw 'Unable to resolve the short commit SHA.' }
+                  $version = "0.0.0-$short"
+              }
+          }
+
+          $version = $version -replace '[^\w\.\-\+]', '-'
+          $numeric = ($version -split '[-+]')[0]
+          if ($numeric -notmatch '^\d+\.\d+\.\d+$' -or $numeric -eq '0.0.0') {
+              $numeric = '1.0.0'
+          }
+
+          $sha = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to resolve HEAD.' }
+          $short = (git rev-parse --short HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to resolve the short commit SHA.' }
+          $tagName = "v$version"
+
+          # Never move an existing tag: releases always target the built commit.
+          $existingTag = git tag --list $tagName
+          if ($existingTag) {
+              $tagCommit = (git rev-list -n 1 $tagName).Trim()
+              if ($LASTEXITCODE -ne 0) { throw "Unable to resolve tag $tagName." }
+              if ($tagCommit -ne $sha) {
+                  throw "Tag $tagName already points to $tagCommit. Choose a new version."
+              }
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "numeric=$numeric" >> $env:GITHUB_OUTPUT
+          "tag=$tagName" >> $env:GITHUB_OUTPUT
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          "short=$short" >> $env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Stamp the app and package version
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $numeric = '${{ steps.meta.outputs.numeric }}'
+          $appxVersion = "$numeric.0"
+
+          $manifestPath = 'Tunly/Package.appxmanifest'
+          $manifest = Get-Content $manifestPath -Raw
+          $manifest = $manifest -replace 'Version="\d+\.\d+\.\d+\.\d+"', "Version=`"$appxVersion`""
+          Set-Content -Path $manifestPath -Value $manifest -Encoding utf8
+
+          Write-Host "Version: $numeric (MSIX identity $appxVersion)"
+
+      - name: Run tests
+        run: dotnet test Tunly.Tests/Tunly.Tests.csproj -c Release -v minimal
+
+      - name: Publish portable build
+        run: |
+          dotnet publish Tunly/Tunly.csproj `
+            -c Release `
+            -p:Platform=x64 `
+            -p:PublishProfile=win-x64 `
+            -p:Version=${{ steps.meta.outputs.numeric }} `
+            -o release-publish `
+            -v minimal
+
+      - name: Build MSIX package
+        run: |
+          dotnet build Tunly/Tunly.csproj `
+            -c Release `
+            -p:Platform=x64 `
+            -p:Version=${{ steps.meta.outputs.numeric }} `
+            -p:WindowsPackageType=MSIX `
+            -p:GenerateAppxPackageOnBuild=true `
+            -p:AppxPackageSigningEnabled=false `
+            -p:AppxBundle=Never `
+            -v minimal
+
+      - name: Sign MSIX and collect installation files
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $version = '${{ steps.meta.outputs.version }}'
+
+          New-Item -ItemType Directory -Force -Path 'release-assets' | Out-Null
+
+          $msix = Get-ChildItem 'Tunly/AppPackages' -Recurse -Filter '*.msix' -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+          if (-not $msix) { throw 'The MSIX package was not produced under Tunly/AppPackages.' }
+          Write-Host "MSIX: $($msix.FullName) ($([math]::Round($msix.Length / 1MB, 1)) MB)"
+
+          # Repack the unsigned package with only en-us WinUI resources.
+          $nugetTools = Join-Path $env:USERPROFILE '.nuget\packages\microsoft.windows.sdk.buildtools'
+          $stage = Join-Path $env:RUNNER_TEMP 'msix-stage'
+          $trimmed = Join-Path $env:RUNNER_TEMP 'Tunly-trimmed.msix'
+          Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $trimmed -Force -ErrorAction SilentlyContinue
+          Expand-Archive $msix.FullName -DestinationPath $stage
+          Get-ChildItem $stage -Directory |
+              Where-Object { $_.Name -match '^[A-Za-z]{2,3}(-[A-Za-z0-9]+)*$' -and $_.Name -ne 'en-us' } |
+              Remove-Item -Recurse -Force
+
+          $makeappxCandidates = @()
+          foreach ($root in @("${env:ProgramFiles(x86)}\Windows Kits\10\bin", "$env:ProgramFiles\Windows Kits\10\bin")) {
+              if (Test-Path $root) {
+                  $makeappxCandidates += Get-ChildItem $root -Recurse -Filter 'makeappx.exe' -ErrorAction SilentlyContinue
+              }
+          }
+          if (Test-Path $nugetTools) {
+              $makeappxCandidates += Get-ChildItem $nugetTools -Recurse -Filter 'makeappx.exe' -ErrorAction SilentlyContinue
+          }
+          $makeappx = $makeappxCandidates |
+              Where-Object { $_.FullName -match '\\x64\\makeappx\.exe$' } |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+          if (-not $makeappx) { throw 'makeappx.exe was not found.' }
+          & $makeappx.FullName pack /d $stage /p $trimmed /o | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "makeappx failed with exit code $LASTEXITCODE." }
+          Move-Item $trimmed $msix.FullName -Force
+          Write-Host 'Trimmed the MSIX to en-us resources.'
+
+          # CodeSigningCert sets the code-signing EKU and signature key spec.
+          $certificate = New-SelfSignedCertificate `
+              -Type CodeSigningCert `
+              -Subject 'CN=Anjana' `
+              -FriendlyName 'Tunly Release Signing' `
+              -CertStoreLocation 'Cert:\CurrentUser\My' `
+              -NotAfter (Get-Date).AddYears(3)
+
+          $password = [Guid]::NewGuid().ToString('N')
+          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+          $pfx = Join-Path $env:RUNNER_TEMP 'tunly-signing.pfx'
+          Export-PfxCertificate -Cert $certificate -FilePath $pfx -Password $securePassword | Out-Null
+
+          # Prefer a full Windows SDK install, then the SDK BuildTools NuGet
+          # package restored by the MSIX build, then PATH.
+          $candidates = @()
+          foreach ($root in @("${env:ProgramFiles(x86)}\Windows Kits\10\bin", "$env:ProgramFiles\Windows Kits\10\bin")) {
+              if (Test-Path $root) {
+                  $candidates += Get-ChildItem $root -Recurse -Filter 'signtool.exe' -ErrorAction SilentlyContinue
+              }
+          }
+          if (Test-Path $nugetTools) {
+              $candidates += Get-ChildItem $nugetTools -Recurse -Filter 'signtool.exe' -ErrorAction SilentlyContinue
+          }
+          $found = $candidates |
+              Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+          $signtoolPath = if ($found) { $found.FullName } else { (Get-Command 'signtool.exe' -ErrorAction Stop).Source }
+          Write-Host "signtool: $signtoolPath"
+
+          & $signtoolPath sign /fd SHA256 /f $pfx /p $password $msix.FullName
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE." }
+
+          $signature = Get-AuthenticodeSignature $msix.FullName
+          if (-not $signature.SignerCertificate) {
+              throw "MSIX signature was not applied: $($signature.Status) $($signature.StatusMessage)"
+          }
+          Write-Host "Signed by: $($signature.SignerCertificate.Subject)"
+
+          Copy-Item $msix.FullName "release-assets/Tunly-$version-windows-x64.msix"
+          Export-Certificate -Cert $certificate -FilePath "release-assets/Tunly-$version-certificate.cer" | Out-Null
+
+          Get-ChildItem 'release-assets' -File | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Package portable build and install scripts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '${{ steps.meta.outputs.version }}'
+          $publish = 'release-publish'
+
+          if (-not (Test-Path (Join-Path $publish 'Tunly.exe'))) {
+              throw "Portable publish output was not found at $publish."
+          }
+
+          $zip = Join-Path (Resolve-Path 'release-assets').Path "Tunly-$version-windows-x64-portable.zip"
+          Compress-Archive -Path (Join-Path $publish '*') -DestinationPath $zip -CompressionLevel Optimal -Force
+          if (-not (Test-Path $zip)) { throw 'Creating the portable ZIP failed.' }
+
+          Copy-Item 'packaging/Install-Portable.ps1' 'release-assets/'
+          Copy-Item 'packaging/Install-MSIX.ps1' 'release-assets/'
+          Copy-Item 'packaging/Uninstall-Tunly.ps1' 'release-assets/'
+
+          Get-ChildItem 'release-assets' -File | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Write checksums and release notes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '${{ steps.meta.outputs.version }}'
+          $sha = '${{ steps.meta.outputs.sha }}'
+          $short = '${{ steps.meta.outputs.short }}'
+          $ref = $env:GITHUB_REF_NAME
+          $date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')
+          $subject = (git log -1 --pretty=%s).Trim()
+
+          Get-ChildItem 'release-assets' -File |
+              Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+              Sort-Object Name |
+              ForEach-Object {
+                  $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                  "$hash  $($_.Name)"
+              } |
+              Set-Content 'release-assets/SHA256SUMS.txt' -Encoding ascii
+
+          $template = @'
+          ## Tunly __VERSION__ — Windows x64
+
+          Built from commit **__SHORT__** (`__REF__`) on __DATE__ UTC.
+          Latest commit: __SUBJECT__
+
+          ### Install
+
+          **Portable (recommended for TUN mode)**
+
+          1. Download **Tunly-__VERSION__-windows-x64-portable.zip** and **Install-Portable.ps1** into the same folder.
+          2. Run PowerShell as administrator:
+
+             ```powershell
+             powershell -ExecutionPolicy Bypass -File .\Install-Portable.ps1
+             ```
+
+             Or simply extract the ZIP and run `Tunly.exe` (Windows prompts for administrator rights).
+
+          **MSIX (UI testing / store-style deployment)**
+
+          1. Download **Tunly-__VERSION__-windows-x64.msix**, **Tunly-__VERSION__-certificate.cer** and **Install-MSIX.ps1**.
+          2. Run `Install-MSIX.ps1` as administrator. It trusts the release certificate and installs the package.
+
+          > Packaged apps start unelevated, so the MSIX build cannot create the TUN adapter.
+          > Use the portable build for full tunnel support.
+
+          ### Requirements
+
+          - Windows 10 1809+ or Windows 11, x64.
+          - sing-box **1.12 or newer** on `PATH` or configured in **Settings → Core & logs**.
+          - Administrator rights for TUN mode.
+          - Settings and profiles: `%LOCALAPPDATA%\Tunly`.
+
+          ### Files
+
+          - `Tunly-__VERSION__-windows-x64-portable.zip` — self-contained application
+          - `Tunly-__VERSION__-windows-x64.msix` — signed package
+          - `Tunly-__VERSION__-certificate.cer` — public certificate for the MSIX
+          - `Install-Portable.ps1`, `Install-MSIX.ps1`, `Uninstall-Tunly.ps1`
+          - `SHA256SUMS.txt`
+          '@
+
+          $notes = $template.
+              Replace('__VERSION__', $version).
+              Replace('__SHORT__', $short).
+              Replace('__REF__', $ref).
+              Replace('__DATE__', $date).
+              Replace('__SUBJECT__', $subject)
+
+          Set-Content -Path 'release-notes.md' -Value $notes -Encoding utf8
+
+      - name: Verify release assets
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '${{ steps.meta.outputs.version }}'
+          $required = @(
+              "Tunly-$version-windows-x64.msix",
+              "Tunly-$version-windows-x64-portable.zip",
+              "Tunly-$version-certificate.cer",
+              'Install-Portable.ps1',
+              'Install-MSIX.ps1',
+              'Uninstall-Tunly.ps1',
+              'SHA256SUMS.txt'
+          )
+          foreach ($name in $required) {
+              $path = Join-Path 'release-assets' $name
+              if (-not (Test-Path $path)) { throw "Missing release asset: $name" }
+              if ((Get-Item $path).Length -le 0) { throw "Release asset is empty: $name" }
+          }
+          Get-ChildItem 'release-assets' -File |
+              Select-Object Name, @{n='MB';e={[math]::Round($_.Length / 1MB, 2)}} |
+              Format-Table -AutoSize
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: Tunly-${{ steps.meta.outputs.version }}-windows-x64
+          path: release-assets/*
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ steps.meta.outputs.sha }}
+          name: Tunly ${{ steps.meta.outputs.version }} (Windows x64)
+          body_path: release-notes.md
+          files: release-assets/*
+          prerelease: ${{ inputs.prerelease }}
+          overwrite_files: true
+          fail_on_unmatched_files: true
